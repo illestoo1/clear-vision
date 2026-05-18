@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -7,7 +9,6 @@ import { createClient } from "@/app/lib/supabase/client";
 
 export default function SignupPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -22,6 +23,7 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
 
+    const supabase = createClient();
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -66,7 +68,6 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen">
-      {/* Brand panel — same as login */}
       <aside className="hidden lg:flex lg:w-[42%] flex-col justify-between bg-[#0B1120] px-10 py-10 relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#3B8BD4] to-transparent opacity-70" />
         <div
