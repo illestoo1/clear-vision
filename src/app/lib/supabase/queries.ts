@@ -1,6 +1,21 @@
+import { createBrowserClient } from "@supabase/ssr";
 
+// ─── Supabase Client ──────────────────────────────────────────
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+export function createClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    );
+  }
+
+  return createBrowserClient(url, key);
+}
+
+// ─── Types ────────────────────────────────────────────────────
 
 export interface Profile {
   id: string;
@@ -35,13 +50,15 @@ export interface Appointment {
   created_at: string;
 }
 
-// ─── Profile ──────────────────────────────────────────────────────────────────
+// ─── Profile Functions ────────────────────────────────────────
 
 export async function getProfile(): Promise<Profile | null> {
   const supabase = createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
   if (!user) return null;
 
   const { data, error } = await supabase
@@ -54,33 +71,42 @@ export async function getProfile(): Promise<Profile | null> {
     console.error("getProfile:", error.message);
     return null;
   }
-  return data;
+
+  return data as Profile;
 }
 
 export async function updateProfile(
   updates: Partial<Pick<Profile, "full_name" | "email">>,
 ) {
   const supabase = createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+
+  if (!user) {
+    throw new Error("Not authenticated");
+  }
 
   const { error } = await supabase
     .from("profiles")
     .update(updates)
     .eq("id", user.id);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
-// ─── Scans ────────────────────────────────────────────────────────────────────
+// ─── Scan Functions ───────────────────────────────────────────
 
 export async function getScans(): Promise<Scan[]> {
   const supabase = createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
   if (!user) return [];
 
   const { data, error } = await supabase
@@ -93,41 +119,58 @@ export async function getScans(): Promise<Scan[]> {
     console.error("getScans:", error.message);
     return [];
   }
+
   return data ?? [];
 }
 
 export async function insertScan(
   scan: Omit<Scan, "id" | "user_id" | "created_at">,
-) {
+): Promise<Scan> {
   const supabase = createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+
+  if (!user) {
+    throw new Error("Not authenticated");
+  }
 
   const { data, error } = await supabase
     .from("scans")
-    .insert({ ...scan, user_id: user.id })
+    .insert({
+      ...scan,
+      user_id: user.id,
+    })
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(error.message);
+  }
+
   return data as Scan;
 }
 
 export async function deleteScan(id: string) {
   const supabase = createClient();
+
   const { error } = await supabase.from("scans").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
-// ─── Appointments ─────────────────────────────────────────────────────────────
+// ─── Appointment Functions ────────────────────────────────────
 
 export async function getAppointments(): Promise<Appointment[]> {
   const supabase = createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
   if (!user) return [];
 
   const { data, error } = await supabase
@@ -140,6 +183,7 @@ export async function getAppointments(): Promise<Appointment[]> {
     console.error("getAppointments:", error.message);
     return [];
   }
+
   return data ?? [];
 }
 
@@ -147,18 +191,28 @@ export async function insertAppointment(
   appt: Omit<Appointment, "id" | "user_id" | "created_at">,
 ): Promise<Appointment> {
   const supabase = createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+
+  if (!user) {
+    throw new Error("Not authenticated");
+  }
 
   const { data, error } = await supabase
     .from("appointments")
-    .insert({ ...appt, user_id: user.id })
+    .insert({
+      ...appt,
+      user_id: user.id,
+    })
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(error.message);
+  }
+
   return data as Appointment;
 }
 
@@ -167,16 +221,23 @@ export async function updateAppointment(
   updates: Partial<Omit<Appointment, "id" | "user_id" | "created_at">>,
 ) {
   const supabase = createClient();
+
   const { error } = await supabase
     .from("appointments")
     .update(updates)
     .eq("id", id);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function deleteAppointment(id: string) {
   const supabase = createClient();
+
   const { error } = await supabase.from("appointments").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }
