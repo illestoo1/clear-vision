@@ -50,26 +50,37 @@ const ResultIcon = {
 
 // ── Call Python backend /analyze ──────────────────────────────
 async function analyseImage(file: File): Promise<ScanAnalysis> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
+  const url = apiUrl ? `${apiUrl}/analyze` : "/analyze";
 
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${apiUrl}/analyze`, {
+  const res = await fetch(url, {
     method: "POST",
     body: formData,
     // No Content-Type header — browser sets it automatically with boundary for FormData
   });
 
   if (!res.ok) {
-    const err = (await res.json()) as { detail?: string };
-    throw new Error(err.detail ?? `Server error ${res.status}`);
+    const text = await res.text();
+    let message = `Server error ${res.status}`;
+    try {
+      const json = JSON.parse(text);
+      message = json.detail || json.message || message;
+    } catch {
+      if (text) message = text;
+    }
+    throw new Error(message);
   }
 
-  const data = (await res.json()) as {
-    success: boolean;
-    analysis: ScanAnalysis;
-  };
+  const text = await res.text();
+  let data: { success: boolean; analysis: ScanAnalysis };
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON response from analyze endpoint: ${text}`);
+  }
 
   if (!data.success || !data.analysis) {
     throw new Error("Invalid response from AI server.");

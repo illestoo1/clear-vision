@@ -102,7 +102,7 @@ export default function Sidebar() {
       </button>
 
       {/* Main nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto overflow-x-hidden">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto overflow-x-hidden overscroll-contain">
         {!collapsed && (
           <p className="text-[10px] font-medium text-white/30 tracking-widest uppercase px-3 mb-3">
             Main Menu
