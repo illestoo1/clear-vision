@@ -3,11 +3,15 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  MdCloudUpload, MdRemoveRedEye, MdCheckCircle,
-  MdWarning, MdError, MdArrowForward,
+  MdCloudUpload,
+  MdRemoveRedEye,
+  MdCheckCircle,
+  MdWarning,
+  MdError,
+  MdArrowForward,
 } from "react-icons/md";
-import { createClient } from "@/app/lib/supabase/client";
-import { insertScan } from "@/app/lib/supabase/queries";
+import { createClient } from "../../../lib/supabase/client";
+import { insertScan } from "../../../lib/supabase/queries";
 
 // ── Types ─────────────────────────────────────────────────────
 interface Condition {
@@ -33,103 +37,60 @@ const resultBanner = {
 };
 
 const riskBadge = {
-  Low:    "bg-emerald-100 text-emerald-700",
+  Low: "bg-emerald-100 text-emerald-700",
   Medium: "bg-amber-100   text-amber-700",
-  High:   "bg-red-100     text-red-700",
+  High: "bg-red-100     text-red-700",
 };
 
 const ResultIcon = {
   Healthy: <MdCheckCircle size={22} className="text-emerald-600 shrink-0" />,
-  Monitor: <MdWarning     size={22} className="text-amber-600  shrink-0" />,
-  Concern: <MdError       size={22} className="text-red-600    shrink-0" />,
+  Monitor: <MdWarning size={22} className="text-amber-600  shrink-0" />,
+  Concern: <MdError size={22} className="text-red-600    shrink-0" />,
 };
 
-// ── AI prompt ─────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are an expert ophthalmologist AI assistant. Analyse the provided retinal image carefully.
-
-Respond ONLY with valid JSON — no markdown, no explanation, no backticks. Use exactly this structure:
-{
-  "overall_result": "Healthy" | "Monitor" | "Concern",
-  "risk_level": "Low" | "Medium" | "High",
-  "conditions": [
-    { "name": "string", "confidence": 0.0–1.0, "description": "string" }
-  ],
-  "observations": ["string"],
-  "recommendations": ["string"],
-  "disclaimer": "This is an AI-assisted preliminary assessment only. Please consult a qualified ophthalmologist for clinical diagnosis."
-}`;
-
-// ── Convert File → base64 ─────────────────────────────────────
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve((reader.result as string).split(",")[1]);
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
-}
-
-// ── Call Claude API ───────────────────────────────────────────
+// ── Call Python backend /analyze ──────────────────────────────
 async function analyseImage(file: File): Promise<ScanAnalysis> {
-  const base64 = await fileToBase64(file);
-  const mediaType = file.type as "image/jpeg" | "image/png" | "image/webp";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${apiUrl}/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mediaType, data: base64 },
-            },
-            {
-              type: "text",
-              text: "Please analyse this retinal image and return the JSON assessment.",
-            },
-          ],
-        },
-      ],
-    }),
+    body: formData,
+    // No Content-Type header — browser sets it automatically with boundary for FormData
   });
 
   if (!res.ok) {
-    const err = await res.json() as { error?: { message?: string } };
-    throw new Error(err.error?.message ?? `API error ${res.status}`);
+    const err = (await res.json()) as { detail?: string };
+    throw new Error(err.detail ?? `Server error ${res.status}`);
   }
 
-  const data = await res.json() as { content: Array<{ type: string; text: string }> };
-  const text = data.content.find((b) => b.type === "text")?.text ?? "";
+  const data = (await res.json()) as {
+    success: boolean;
+    analysis: ScanAnalysis;
+  };
 
-  // Strip accidental markdown fences
-  const clean = text.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-
-  try {
-    return JSON.parse(clean) as ScanAnalysis;
-  } catch {
-    throw new Error("Could not parse AI response. Please try again.");
+  if (!data.success || !data.analysis) {
+    throw new Error("Invalid response from AI server.");
   }
+
+  return data.analysis;
 }
 
 // ── Component ─────────────────────────────────────────────────
 export default function ScanPage() {
-  const router   = useRouter();
+  const router = useRouter();
   const supabase = createClient();
-  const fileRef  = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const [preview,  setPreview]  = useState<string | null>(null);
-  const [file,     setFile]     = useState<File | null>(null);
-  const [loading,  setLoading]  = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ScanAnalysis | null>(null);
-  const [error,    setError]    = useState<string | null>(null);
-  const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   function handleFile(f: File) {
     if (!f.type.startsWith("image/")) {
@@ -163,7 +124,13 @@ export default function ScanPage() {
       const result = await analyseImage(file);
       setAnalysis(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Analysis failed. Please try again.");
+      const msg = e instanceof Error ? e.message : "Analysis failed.";
+      // Give a helpful hint if backend is not running
+      setError(
+        msg.includes("fetch") || msg.includes("Failed to fetch")
+          ? "Cannot reach the AI server. Make sure your Python backend is running on port 8000."
+          : msg,
+      );
     } finally {
       setLoading(false);
     }
@@ -173,34 +140,40 @@ export default function ScanPage() {
     if (!analysis) return;
     setSaving(true);
     try {
-      // 1. Try to upload image to Supabase Storage (non-blocking — failure is OK)
+      // Upload image to Supabase Storage
       let imageUrl: string | null = null;
       if (file) {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (user) {
-          const ext  = file.name.split(".").pop() ?? "jpg";
+          const ext = file.name.split(".").pop() ?? "jpg";
           const path = `${user.id}/${Date.now()}.${ext}`;
-          const { error: upErr } = await supabase.storage.from("scans").upload(path, file);
+          const { error: upErr } = await supabase.storage
+            .from("scans")
+            .upload(path, file);
           if (!upErr) {
-            const { data: urlData } = supabase.storage.from("scans").getPublicUrl(path);
+            const { data: urlData } = supabase.storage
+              .from("scans")
+              .getPublicUrl(path);
             imageUrl = urlData.publicUrl;
           }
         }
       }
 
-      // 2. Save scan record to DB
+      // Save scan record to DB
       await insertScan({
-        image_url:       imageUrl,
-        result:          analysis.overall_result,
-        risk_level:      analysis.risk_level,
-        condition_notes: analysis.conditions.length > 0
-          ? analysis.conditions.map((c) => c.name).join(", ")
-          : "No conditions detected",
+        image_url: imageUrl,
+        result: analysis.overall_result,
+        risk_level: analysis.risk_level,
+        condition_notes:
+          analysis.conditions.length > 0
+            ? analysis.conditions.map((c) => c.name).join(", ")
+            : "No conditions detected",
         ai_analysis: analysis as unknown as Record<string, unknown>,
       });
 
       setSaved(true);
-      // Redirect to history after 1.5s so user sees the success state
       setTimeout(() => router.push("/dashboard/history"), 1500);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
@@ -221,7 +194,6 @@ export default function ScanPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
-
       {/* ── Upload zone ── */}
       <div
         onDrop={onDrop}
@@ -249,9 +221,14 @@ export default function ScanPage() {
               alt="Retinal scan preview"
               className="max-h-72 rounded-2xl object-contain shadow-md"
             />
-            <p className="text-[12px] text-gray-400">{file?.name} · {((file?.size ?? 0) / 1024).toFixed(0)} KB</p>
+            <p className="text-[12px] text-gray-400">
+              {file?.name} · {((file?.size ?? 0) / 1024).toFixed(0)} KB
+            </p>
             <button
-              onClick={(e) => { e.stopPropagation(); reset(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                reset();
+              }}
               className="text-[12px] text-red-500 hover:text-red-700 transition-colors"
             >
               Remove image
@@ -263,12 +240,19 @@ export default function ScanPage() {
               <MdCloudUpload size={32} className="text-[#185FA5]" />
             </div>
             <div>
-              <p className="text-[15px] font-semibold text-gray-800">Drop a retinal image here</p>
-              <p className="text-[12px] text-gray-400 mt-1">or click to browse · JPEG, PNG, WebP · max 10 MB</p>
+              <p className="text-[15px] font-semibold text-gray-800">
+                Drop a retinal image here
+              </p>
+              <p className="text-[12px] text-gray-400 mt-1">
+                or click to browse · JPEG, PNG, WebP · max 10 MB
+              </p>
             </div>
-            <div className="flex items-center gap-4 mt-1">
+            <div className="flex items-center gap-4 mt-1 flex-wrap justify-center">
               {["Clear image", "Good lighting", "Centred retina"].map((tip) => (
-                <span key={tip} className="flex items-center gap-1 text-[11px] text-gray-400">
+                <span
+                  key={tip}
+                  className="flex items-center gap-1 text-[11px] text-gray-400"
+                >
                   <MdCheckCircle size={12} className="text-[#185FA5]" /> {tip}
                 </span>
               ))}
@@ -290,7 +274,6 @@ export default function ScanPage() {
       {/* ── Loading ── */}
       {loading && (
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-10 flex flex-col items-center gap-5">
-          {/* Eye-branded spinner */}
           <div className="relative w-14 h-14">
             <div className="absolute inset-0 border-4 border-[#185FA5]/15 rounded-full" />
             <div className="absolute inset-0 border-4 border-transparent border-t-[#185FA5] rounded-full animate-spin" />
@@ -299,18 +282,29 @@ export default function ScanPage() {
             </div>
           </div>
           <div className="text-center">
-            <p className="text-[14px] font-semibold text-gray-800">Analysing your retinal image</p>
-            <p className="text-[12px] text-gray-400 mt-1">AI is reviewing for 6+ conditions — this takes 10–30 seconds</p>
+            <p className="text-[14px] font-semibold text-gray-800">
+              Analysing your retinal image
+            </p>
+            <p className="text-[12px] text-gray-400 mt-1">
+              AI is reviewing for 6+ conditions — this takes 10–30 seconds
+            </p>
           </div>
-          {/* Progress steps */}
           <div className="flex items-center gap-2 flex-wrap justify-center">
-            {["Preprocessing", "Detecting features", "Generating report"].map((step, i) => (
-              <span key={step} className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                {i > 0 && <span className="text-gray-200">→</span>}
-                <span className="w-1.5 h-1.5 rounded-full bg-[#185FA5] animate-pulse" style={{ animationDelay: `${i * 0.3}s` }} />
-                {step}
-              </span>
-            ))}
+            {["Preprocessing", "Detecting features", "Generating report"].map(
+              (step, i) => (
+                <span
+                  key={step}
+                  className="flex items-center gap-1.5 text-[11px] text-gray-400"
+                >
+                  {i > 0 && <span className="text-gray-200">→</span>}
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-[#185FA5] animate-pulse"
+                    style={{ animationDelay: `${i * 0.3}s` }}
+                  />
+                  {step}
+                </span>
+              ),
+            )}
           </div>
         </div>
       )}
@@ -326,19 +320,24 @@ export default function ScanPage() {
       {/* ── Results ── */}
       {analysis && (
         <div className="space-y-4">
-
           {/* Overall result banner */}
-          <div className={`rounded-3xl border p-5 flex items-start justify-between gap-4 ${resultBanner[analysis.overall_result]}`}>
+          <div
+            className={`rounded-3xl border p-5 flex items-start justify-between gap-4 ${resultBanner[analysis.overall_result]}`}
+          >
             <div className="flex items-center gap-3">
               {ResultIcon[analysis.overall_result]}
               <div>
-                <p className="text-[16px] font-bold">{analysis.overall_result}</p>
+                <p className="text-[16px] font-bold">
+                  {analysis.overall_result}
+                </p>
                 <p className="text-[11px] opacity-60 mt-0.5 max-w-sm leading-relaxed">
                   {analysis.disclaimer}
                 </p>
               </div>
             </div>
-            <span className={`text-[11px] font-bold px-3 py-1 rounded-full shrink-0 ${riskBadge[analysis.risk_level]}`}>
+            <span
+              className={`text-[11px] font-bold px-3 py-1 rounded-full shrink-0 ${riskBadge[analysis.risk_level]}`}
+            >
               {analysis.risk_level} risk
             </span>
           </div>
@@ -346,12 +345,16 @@ export default function ScanPage() {
           {/* Detected conditions */}
           {analysis.conditions.length > 0 && (
             <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
-              <h3 className="text-[13px] font-semibold text-gray-800 mb-4">Detected conditions</h3>
+              <h3 className="text-[13px] font-semibold text-gray-800 mb-4">
+                Detected conditions
+              </h3>
               <div className="space-y-4">
                 {analysis.conditions.map((c, i) => (
                   <div key={i}>
                     <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-[13px] font-semibold text-gray-800">{c.name}</p>
+                      <p className="text-[13px] font-semibold text-gray-800">
+                        {c.name}
+                      </p>
                       <span className="text-[11px] font-semibold text-gray-500">
                         {Math.round(c.confidence * 100)}%
                       </span>
@@ -363,7 +366,9 @@ export default function ScanPage() {
                       />
                     </div>
                     {c.description && (
-                      <p className="text-[11px] text-gray-400 mt-1">{c.description}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        {c.description}
+                      </p>
                     )}
                   </div>
                 ))}
@@ -379,7 +384,10 @@ export default function ScanPage() {
               </h3>
               <ul className="space-y-2">
                 {analysis.observations.map((o, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[12px] text-gray-600">
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 text-[12px] text-gray-600"
+                  >
                     <span className="w-1 h-1 rounded-full bg-[#185FA5] mt-1.5 shrink-0" />
                     {o}
                   </li>
@@ -392,7 +400,10 @@ export default function ScanPage() {
               </h3>
               <ul className="space-y-2">
                 {analysis.recommendations.map((r, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[12px] text-gray-600">
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 text-[12px] text-gray-600"
+                  >
                     <span className="w-1 h-1 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
                     {r}
                   </li>
@@ -413,11 +424,18 @@ export default function ScanPage() {
               }`}
             >
               {saved ? (
-                <><MdCheckCircle size={16} /> Saved! Redirecting to history…</>
+                <>
+                  <MdCheckCircle size={16} /> Saved! Redirecting to history…
+                </>
               ) : saving ? (
-                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{" "}
+                  Saving…
+                </>
               ) : (
-                <><MdArrowForward size={16} /> Save to my history</>
+                <>
+                  <MdArrowForward size={16} /> Save to my history
+                </>
               )}
             </button>
             <button
