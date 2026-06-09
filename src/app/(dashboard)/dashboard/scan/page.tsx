@@ -29,6 +29,40 @@ interface ScanAnalysis {
   disclaimer: string;
 }
 
+async function isLikelyRetinalImage(dataUrl: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const size = 128;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(true);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, size, size);
+      const imageData = ctx.getImageData(0, 0, size, size).data;
+      let red = 0;
+      let green = 0;
+      let blue = 0;
+      const pixelCount = imageData.length / 4;
+      for (let i = 0; i < imageData.length; i += 4) {
+        red += imageData[i];
+        green += imageData[i + 1];
+        blue += imageData[i + 2];
+      }
+      const avgRed = red / pixelCount;
+      const avgGreen = green / pixelCount;
+      const avgBlue = blue / pixelCount;
+      resolve(avgRed > 70 && avgRed > avgGreen && avgRed > avgBlue);
+    };
+    img.onerror = () => resolve(true);
+    img.src = dataUrl;
+  });
+}
+
 // ── Style maps ────────────────────────────────────────────────
 const resultBanner = {
   Healthy: "border-emerald-200 bg-emerald-50 text-emerald-800",
@@ -100,24 +134,39 @@ export default function ScanPage() {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState<ScanAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   function handleFile(f: File) {
     if (!f.type.startsWith("image/")) {
       setError("Please upload a JPEG, PNG, or WebP image.");
+      setWarning(null);
       return;
     }
     if (f.size > 10 * 1024 * 1024) {
       setError("Image must be under 10 MB.");
+      setWarning(null);
       return;
     }
     setFile(f);
     setAnalysis(null);
     setError(null);
+    setWarning(null);
     setSaved(false);
     const reader = new FileReader();
-    reader.onload = (e) => setPreview(e.target?.result as string);
+    reader.onload = async (e) => {
+      const src = e.target?.result as string;
+      setPreview(src);
+      if (src) {
+        const isRetinal = await isLikelyRetinalImage(src);
+        if (!isRetinal) {
+          setWarning(
+            "This image may not be a retinal scan. Please upload a clear eye image.",
+          );
+        }
+      }
+    };
     reader.readAsDataURL(f);
   }
 
@@ -129,6 +178,13 @@ export default function ScanPage() {
 
   async function runAnalysis() {
     if (!file) return;
+    if (warning) {
+      setError(
+        warning ||
+          "This image does not appear to be a retinal scan. Please upload a retinal image.",
+      );
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -276,10 +332,25 @@ export default function ScanPage() {
       {file && !loading && !analysis && (
         <button
           onClick={runAnalysis}
-          className="w-full py-3.5 bg-[#185FA5] hover:bg-[#0f4a85] text-white text-[14px] font-semibold rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-[#185FA5]/20"
+          disabled={!!warning}
+          className={`w-full py-3.5 text-white text-[14px] font-semibold rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-[#185FA5]/20 ${
+            warning
+              ? "bg-slate-300 text-slate-600 cursor-not-allowed"
+              : "bg-[#185FA5] hover:bg-[#0f4a85]"
+          }`}
         >
           <MdRemoveRedEye size={18} /> Analyse this scan
         </button>
+      )}
+
+      {/* ── Warning ── */}
+      {warning && !analysis && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-start gap-3">
+          <MdWarning size={18} className="text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-[13px] text-amber-700 leading-relaxed">
+            {warning}
+          </p>
+        </div>
       )}
 
       {/* ── Loading ── */}
