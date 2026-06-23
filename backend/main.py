@@ -92,39 +92,14 @@ MOCK_RESULTS = [
 
 
 def is_retinal_image(image: Image.Image) -> bool:
-    # Heuristic for retinal scans: strong red/orange bias, moderate brightness,
-    # and many pixels with red dominance.
-    image = image.resize((128, 128)).convert("RGB")
-    pixels = list(image.getdata())
-    red_sum = green_sum = blue_sum = 0
-    red_dominant = 0
-
-    for r, g, b in pixels:
-        red_sum += r
-        green_sum += g
-        blue_sum += b
-        if r > 90 and r > g + 15 and r > b + 15:
-            red_dominant += 1
-
-    total = len(pixels)
-    if total == 0:
+    # Loosened check: accept any real photo of reasonable size.
+    # Previously this required a strong red/orange color bias (true fundus
+    # photo characteristics), which rejected normal face/eye photos.
+    # Now we just confirm it's a real, reasonably sized image — face photos,
+    # close-up eye photos, and true fundus scans will all pass.
+    width, height = image.size
+    if width < 50 or height < 50:
         return False
-
-    avg_red = red_sum / total
-    avg_green = green_sum / total
-    avg_blue = blue_sum / total
-    avg_brightness = (avg_red + avg_green + avg_blue) / 3
-    red_ratio = red_dominant / total
-
-    if avg_brightness < 45 or avg_brightness > 230:
-        return False
-    if avg_red < 90:
-        return False
-    if avg_red <= avg_green * 1.1 or avg_red <= avg_blue * 1.1:
-        return False
-    if red_ratio < 0.25:
-        return False
-
     return True
 
 
@@ -165,7 +140,7 @@ async def analyze_image(file: UploadFile = File(...)):
     if not is_retinal_image(image):
         raise HTTPException(
             status_code=400,
-            detail="Uploaded image does not appear to be a retinal scan. Please upload a clear eye image.",
+            detail="Image too small or unreadable. Please upload a clear photo.",
         )
 
     # Use image size to seed result so same image always returns same result
