@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/app/lib/supabase/client";
+import {createClient} from "@/app/lib/supabase/client";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -24,20 +24,27 @@ export default function SignupPage() {
     setError(null);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName },
-        emailRedirectTo: `${location.origin}/dashboard`,
-      },
-    });
+    try {
+      const { data, error: signUpError } = await supabase.auth.signUp(
+        {
+          email, password, options: {
+            data: { full_name: fullName },
+            emailRedirectTo: `${location.origin}/dashboard`,
+          },
+        },
+      );
 
-    if (error) {
-      setError(error.message);
+      if (signUpError) {
+        setError(signUpError.message);
+        setLoading(false);
+      } else {
+        setSuccess(true);
+      }
+    } catch (err: any) {
+      // Surface network / fetch errors clearly in the UI
+      setError(err?.message ?? "Unexpected error during signup");
       setLoading(false);
-    } else {
-      setSuccess(true);
+      console.error("Supabase signup failed:", err);
     }
   }
 
